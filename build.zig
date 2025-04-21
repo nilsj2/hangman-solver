@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -10,16 +10,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-
     const exe = b.addExecutable(.{
         .name = "hangman-solver",
         .root_module = exe_mod,
     });
 
-    const words_txt = @embedFile("words/se.txt");
+    const language = b.option(enum { en, se }, "language", "language for dictionary that solver uses") orelse .en;
+    const cwd = std.fs.cwd();
+    const words_file = try cwd.openFile(b.fmt("words/{s}.txt", .{@tagName(language)}), .{});
+    const words_txt = try words_file.readToEndAlloc(b.allocator, 100_000_000);
+
     var word_list: std.ArrayListUnmanaged([]const u8) = .empty;
     var word_iterator = std.mem.splitScalar(u8, words_txt, '\n');
-    while(word_iterator.next())|word| {
+    while (word_iterator.next()) |word| {
         word_list.append(b.allocator, word) catch unreachable;
     }
 
@@ -50,4 +53,3 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
 }
-
