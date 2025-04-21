@@ -1,45 +1,110 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
+const std = @import("std");
+const print = std.debug.print;
+const builtin = @import("builtin");
 
+const words = @import("words").words;
+
+/// Usage: solver <WORD_LENGTH>
+/// Then a back and forth until solution
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
+    const stdin = std.io.getStdIn().reader();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    var arg_iterator = std.process.args();
+    _ = arg_iterator.next().?;
+    const number_string = arg_iterator.next() orelse return error.NoWordLengthProvided;
+    if (arg_iterator.next() != null) {
+        return error.TooManyArgs;
+    }
+    const length = try std.fmt.parseInt(usize, number_string, 10);
 
-    try bw.flush(); // Don't forget to flush!
-}
+    var buffer = [_]u8{0} ** 50; // Longest swedish word is 48
+    const mask = buffer[0..length];
+    var not_present: std.StaticBitSet(256) = .initEmpty();
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
-}
-
-test "fuzz example" {
-    const global = struct {
-        fn testOne(input: []const u8) anyerror!void {
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
+    var tries: u32 = 0;
+    game_loop: while (true) : (tries += 1) {
+        const result = try calculateBest(mask, not_present);
+        if (result.answer) |answer| {
+            try stdout.print("Matched word: {s} in {} tries\n", .{ answer, tries });
+            try bw.flush();
+            break :game_loop;
         }
-    };
-    try std.testing.fuzz(global.testOne, .{});
+        const suggested_char = result.guess;
+        try stdout.print("Best guess: '{c}({})'\n", .{ suggested_char, suggested_char });
+
+        _ = try stdout.write("Current solution:\n");
+        for (mask) |char| {
+            try stdout.writeByte(if (char == 0) '_' else char);
+        }
+        _ = try stdout.write("\nEnter new solution:\n");
+        try bw.flush();
+        var new_buffer = [_]u8{0} ** 50; // Longest sewdish word is 48
+        const new_mask_str = try stdin.readUntilDelimiter(&new_buffer, '\n');
+        if (new_mask_str.len == 0) {
+            not_present.setValue(suggested_char, true);
+            continue;
+        }
+        std.mem.replaceScalar(u8, new_mask_str, '_', 0);
+
+        var something_changed = false;
+        for (mask, new_mask_str, 0..) |old, new, i| {
+            if (old != new) {
+                mask[i] = new;
+                something_changed = true;
+            }
+        }
+        if (!something_changed) {
+            not_present.setValue(suggested_char, true);
+        }
+    }
 }
 
-const std = @import("std");
+fn calculateBest(mask: []u8, not_present: std.StaticBitSet(256)) !struct { guess: u8, answer: ?[]const u8 } {
+    var matching_word_count: usize = 0;
+    var char_counts = [_]u32{0} ** 256;
+    var last_match: []const u8 = undefined;
 
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("hangman-solver_lib");
+    word_loop: for (words) |word| {
+        if (word.len != mask.len) {
+            continue;
+        }
+        for (word, mask) |actual, expected| {
+            if (!(expected == 0 or std.ascii.toLower(actual) == expected) or not_present.isSet(actual)) {
+                continue :word_loop;
+            }
+        }
+        matching_word_count += 1;
+        for (word) |char| {
+            char_counts[char] += 1;
+        }
+        last_match = word;
+    }
+
+    if (matching_word_count == 1) {
+        return .{ .guess = 0, .answer = last_match };
+    }
+
+    const suggested_char = blk: {
+        var correct_chars: std.StaticBitSet(256) = .initEmpty();
+        for (mask) |char| {
+            if (char != 0) {
+                correct_chars.setValue(char, true);
+            }
+        }
+        var to_suggest: u8 = undefined;
+        var suggestion_occured: u32 = 0;
+        for (char_counts, 0..) |occurs, char| {
+            const truncated: u8 = @truncate(char);
+            if (occurs > suggestion_occured and !correct_chars.isSet(char)) {
+                to_suggest = truncated;
+                suggestion_occured = occurs;
+            }
+        }
+        break :blk to_suggest;
+    };
+
+    return .{ .guess = suggested_char, .answer = null };
+}

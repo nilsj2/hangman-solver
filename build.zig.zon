@@ -1,6 +1,8 @@
 .{
-    .name = "hangman-solver",
+    .name = .hangman_solver,
     .version = "0.0.0",
+
+    .fingerprint = 0x6bf2aa069816fb6f,
 
     .dependencies = .{},
 

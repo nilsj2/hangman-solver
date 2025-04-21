@@ -10,10 +10,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+
     const exe = b.addExecutable(.{
         .name = "hangman-solver",
         .root_module = exe_mod,
     });
+
+    const words_txt = @embedFile("words/se.txt");
+    var word_list: std.ArrayListUnmanaged([]const u8) = .empty;
+    var word_iterator = std.mem.splitScalar(u8, words_txt, '\n');
+    while(word_iterator.next())|word| {
+        word_list.append(b.allocator, word) catch unreachable;
+    }
+
+    const options = b.addOptions();
+    options.addOption([]const []const u8, "words", word_list.items);
+
+    exe.root_module.addOptions("words", options);
 
     b.installArtifact(exe);
 
@@ -37,3 +50,4 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
 }
+
