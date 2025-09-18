@@ -12,7 +12,7 @@ pub fn main() !void {
     const stdout = bw.writer();
     const stdin = std.io.getStdIn().reader();
 
-    var arg_iterator = std.process.args();
+    var arg_iterator = try std.process.argsWithAllocator(std.heap.page_allocator);
     _ = arg_iterator.next().?;
     const number_string = arg_iterator.next() orelse return error.NoWordLengthProvided;
     if (arg_iterator.next() != null) {
@@ -42,12 +42,14 @@ pub fn main() !void {
         _ = try stdout.write("\nEnter new solution:\n");
         try bw.flush();
         var new_buffer = [_]u8{0} ** 50; // Longest sewdish word is 48
-        const new_mask_str = try stdin.readUntilDelimiter(&new_buffer, '\n');
+        const raw_str = try stdin.readUntilDelimiter(&new_buffer, '\n');
+        const new_mask_str = std.mem.trim(u8, raw_str, &std.ascii.whitespace);
+
         if (new_mask_str.len == 0) {
             not_present.setValue(suggested_char, true);
             continue;
         }
-        std.mem.replaceScalar(u8, new_mask_str, '_', 0);
+        std.mem.replaceScalar(u8, @constCast(new_mask_str), '_', 0);
 
         var something_changed = false;
         for (mask, new_mask_str, 0..) |old, new, i| {
